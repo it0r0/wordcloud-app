@@ -7,7 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    software-properties-common \
+    # software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
