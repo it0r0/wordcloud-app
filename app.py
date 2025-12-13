@@ -2,11 +2,9 @@ import streamlit as st
 import numpy as np
 from PIL import Image
 from wordcloud import WordCloud, STOPWORDS
-import matplotlib.pyplot as plt
-import io
+import tempfile
 import os
 from pathlib import Path
-import tempfile
 
 # Page configuration
 st.set_page_config(
@@ -25,13 +23,6 @@ st.markdown("""
         text-align: center;
         margin-bottom: 2rem;
     }
-    .section-header {
-        font-size: 1.5rem;
-        font-weight: bold;
-        color: #2c3e50;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -40,202 +31,160 @@ st.markdown('<div class="main-header">☁️ iSeeU Cloud</div>', unsafe_allow_ht
 # Initialize session state
 if 'wordcloud' not in st.session_state:
     st.session_state.wordcloud = None
+if 'wordcloud_image' not in st.session_state:
+    st.session_state.wordcloud_image = None
 
 # Function to transform mask image (from original)
 def transform_format(val):
     """Transform mask values to proper format for wordcloud"""
-    if val != 0:
-        return 255
-    else:
-        return 0
+    return 255 if val != 0 else 0
 
-# Sidebar for configuration
-st.sidebar.title("⚙️ Configuration")
-
-# Font upload section (NEW FEATURE #1)
-st.sidebar.markdown("### 📝 Font Files")
-uploaded_fonts = st.sidebar.file_uploader(
-    "Upload Font Files (.ttf, .otf)",
-    type=["ttf", "otf"],
-    accept_multiple_files=True,
-    help="Upload one or more font files to use in the word cloud"
+# MAIN MODE TOGGLE - Single Switch
+st.sidebar.title("⚙️ Mode Selection")
+enhanced_mode = st.sidebar.toggle(
+    "🚀 Enhanced Mode", 
+    value=False,
+    help="Toggle ON for new features (multiple fonts, priority words). Toggle OFF for original simple mode."
 )
 
-# Check for default font from original
-default_font_path = './Montserrat-Bold.otf'
-font_paths = []
-
-if uploaded_fonts:
-    fonts_dir = Path("/tmp/fonts")
-    fonts_dir.mkdir(exist_ok=True)
-    
-    for font_file in uploaded_fonts:
-        font_path = fonts_dir / font_file.name
-        with open(font_path, "wb") as f:
-            f.write(font_file.getbuffer())
-        font_paths.append(str(font_path))
-    
-    st.sidebar.success(f"✅ {len(font_paths)} font(s) loaded")
-elif os.path.exists(default_font_path):
-    font_paths = [default_font_path]
-    st.sidebar.info("Using default Montserrat-Bold font")
+if enhanced_mode:
+    st.sidebar.info("🚀 Enhanced Mode: Multiple fonts, priority words, and advanced settings enabled")
 else:
-    st.sidebar.info("Using system default font")
+    st.sidebar.info("📝 Simple Mode: Classic iSeeU experience")
 
-# Font size configuration (NEW FEATURE #2)
-st.sidebar.markdown("### 📏 Font Size Range")
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    min_font_size = st.number_input(
-        "Min Size",
-        min_value=4,
-        max_value=100,
-        value=10,
-        step=1,
-        help="Minimum font size for words"
-    )
-with col2:
-    max_font_size = st.number_input(
-        "Max Size",
-        min_value=10,
-        max_value=500,
-        value=100,
-        step=10,
-        help="Maximum font size for words"
-    )
+st.sidebar.markdown("---")
 
-# Word cloud configuration
-st.sidebar.markdown("### 🎨 Word Cloud Settings")
-
-# Keep original black-on-white option or allow color
-use_original_style = st.sidebar.checkbox(
-    "Use Original Black-on-White Style",
-    value=True,
-    help="Mimics the original iSeeU style with black text on white background"
-)
-
-if not use_original_style:
-    background_color = st.sidebar.color_picker(
-        "Background Color",
-        "#FFFFFF",
-        help="Background color of the word cloud"
+# Configuration based on mode
+if enhanced_mode:
+    # ENHANCED MODE - All new features
+    st.sidebar.markdown("### 📝 Font Files")
+    uploaded_fonts = st.sidebar.file_uploader(
+        "Upload Font Files (.ttf, .otf)",
+        type=["ttf", "otf"],
+        accept_multiple_files=True,
+        help="Upload one or more font files"
     )
     
-    colormap = st.sidebar.selectbox(
-        "Color Scheme",
-        ["viridis", "plasma", "inferno", "magma", "cividis", "twilight", "turbo", "rainbow", "jet", "hsv"],
-        help="Color map for the words"
-    )
+    # Check for default font
+    default_font_path = './Montserrat-Bold.otf'
+    font_paths = []
+    
+    if uploaded_fonts:
+        fonts_dir = Path("/tmp/fonts")
+        fonts_dir.mkdir(exist_ok=True)
+        for font_file in uploaded_fonts:
+            font_path = fonts_dir / font_file.name
+            with open(font_path, "wb") as f:
+                f.write(font_file.getbuffer())
+            font_paths.append(str(font_path))
+        st.sidebar.success(f"✅ {len(font_paths)} font(s) loaded")
+    elif os.path.exists(default_font_path):
+        font_paths = [default_font_path]
+        st.sidebar.info("Using Montserrat-Bold font")
+    
+    # Font size configuration
+    st.sidebar.markdown("### 📏 Font Size Range")
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        min_font_size = st.number_input("Min", 4, 100, 10, 1)
+    with col2:
+        max_font_size = st.number_input("Max", 10, 500, 100, 10)
+    
+    st.sidebar.markdown("### 🎨 Settings")
+    max_words = st.sidebar.number_input("Max Words", 10, 500, 100, 10, help="Lower = faster generation")
 else:
-    background_color = "white"
-    colormap = None
-
-max_words = st.sidebar.number_input(
-    "Max Words",
-    min_value=10,
-    max_value=1000,
-    value=200,
-    step=10,
-    help="Maximum number of words to display"
-)
-
-repeat_words = st.sidebar.checkbox(
-    "Repeat Words",
-    value=True,
-    help="Allow words to appear multiple times (original behavior)"
-)
+    # SIMPLE MODE - Original settings
+    default_font_path = './Montserrat-Bold.otf'
+    font_paths = [default_font_path] if os.path.exists(default_font_path) else []
+    min_font_size = 10
+    max_font_size = 100
+    max_words = 200
 
 # Main content area
 col_left, col_right = st.columns([1, 1])
 
 with col_left:
-    st.markdown('<div class="section-header">📤 Upload Mask Image</div>', unsafe_allow_html=True)
+    st.markdown("### 📤 Upload Mask Image")
     mask_image = st.file_uploader(
-        "Upload a black and white silhouette image",
+        "Upload silhouette image",
         type=["png", "jpg", "jpeg"],
-        help="Upload a silhouette image where white areas will be filled with words"
+        help="Black and white silhouette"
     )
     
     if mask_image:
-        mask_img_display = Image.open(mask_image)
-        st.image(mask_img_display, caption="Uploaded Silhouette", use_container_width=True)
+        st.image(Image.open(mask_image), caption="Silhouette", use_container_width=True)
 
 with col_right:
-    st.markdown('<div class="section-header">💬 Word Input</div>', unsafe_allow_html=True)
+    st.markdown("### 💬 Word Input")
     
-    # Tab for different word categories (NEW FEATURE #3)
-    tab1, tab2, tab3 = st.tabs(["🔥 Priority Words", "📝 Regular Words", "📄 Text Input"])
-    
-    with tab1:
-        st.markdown("**High Priority Words** (will appear larger)")
-        priority_words = st.text_area(
-            "Enter priority words (one per line or comma-separated)",
-            height=120,
-            placeholder="Important\nKeyword\nHighlight",
-            help="These words will appear larger in the word cloud",
-            key="priority"
-        )
+    if enhanced_mode:
+        # ENHANCED MODE - Three tabs
+        tab1, tab2, tab3 = st.tabs(["🔥 Priority", "📝 Regular", "📄 Full Text"])
         
-        priority_weight = st.slider(
-            "Priority Multiplier",
-            1.0,
-            10.0,
-            5.0,
-            0.5,
-            help="How much larger should priority words be?"
-        )
-    
-    with tab2:
-        st.markdown("**Regular Words**")
-        regular_words = st.text_area(
-            "Enter regular words (one per line or comma-separated)",
-            height=120,
-            placeholder="word1\nword2\nword3",
-            help="These words will appear at normal sizes",
-            key="regular"
-        )
-    
-    with tab3:
-        st.markdown("**Full Text Input** (original method)")
+        with tab1:
+            priority_words = st.text_area(
+                "Priority words (one per line or comma-separated)",
+                height=100,
+                placeholder="Important\nKeyword",
+                key="priority"
+            )
+            priority_weight = st.slider("Priority Multiplier", 1.0, 10.0, 5.0, 0.5)
+        
+        with tab2:
+            regular_words = st.text_area(
+                "Regular words (one per line or comma-separated)",
+                height=100,
+                placeholder="word1\nword2",
+                key="regular"
+            )
+        
+        with tab3:
+            full_text = st.text_area(
+                "Full text (original method)",
+                height=100,
+                placeholder="Enter text here...",
+                key="fulltext"
+            )
+    else:
+        # SIMPLE MODE - Single text input
         full_text = st.text_area(
-            "Enter full text (like original app)",
-            height=120,
-            placeholder="Enter your text here...",
-            help="Original iSeeU method - enter full text and stopwords will be filtered",
-            key="fulltext"
+            "Enter your text",
+            height=200,
+            placeholder="Type your text here...",
+            key="simple_text"
         )
+        priority_words = ""
+        regular_words = ""
+        priority_weight = 1.0
 
-# Function to generate word cloud (enhanced from original)
+# Generate word cloud function
 def generate_word_cloud(text, priority_text, regular_text, mask_image, font_path, 
-                       min_size, max_size, bg_color, colormap, max_words, repeat,
-                       priority_mult, use_black_style):
-    """
-    Generate word cloud combining original functionality with new features
-    """
-    # Setup stopwords (from original)
+                       min_size, max_size, max_words, priority_mult):
+    """Generate word cloud - optimized for speed"""
+    
+    # Setup stopwords
     stopwords = set(STOPWORDS)
     stopwords.update(["drink", "now", "wine", "flavor", "flavors"])
     
-    # Process mask if provided (original method)
+    # Process mask
     if mask_image is not None:
         mask = np.array(Image.open(mask_image).convert('L'))
-        transformed_mask = np.ndarray((mask.shape[0], mask.shape[1]), np.int32)
-        for i in range(len(mask)):
-            transformed_mask[i] = list(map(transform_format, mask[i]))
+        # Optimized transformation using vectorization
+        transformed_mask = np.where(mask != 0, 255, 0).astype(np.int32)
     else:
         st.warning("Please upload a mask image.")
         return None
     
-    # Black color function from original
+    # Black color function
     def black_color_func(word=None, font_size=None, position=None, 
                         orientation=None, font_path=None, random_state=None):
         return "rgb(0, 0, 0)"
     
-    # Determine if using word frequency method or text method
+    # Determine generation method
     use_frequency = bool(priority_text or regular_text)
     
     if use_frequency:
-        # NEW: Priority word method
+        # Priority word method
         def parse_words(text):
             if not text:
                 return []
@@ -245,14 +194,9 @@ def generate_word_cloud(text, priority_text, regular_text, mask_image, font_path
         priority_list = parse_words(priority_text)
         regular_list = parse_words(regular_text)
         
-        # Create word frequency dictionary
         word_freq = {}
-        
-        # Add priority words with higher frequency
         for word in priority_list:
             word_freq[word.upper()] = int(100 * priority_mult)
-        
-        # Add regular words
         for word in regular_list:
             if word.upper() not in word_freq:
                 word_freq[word.upper()] = 10
@@ -261,37 +205,38 @@ def generate_word_cloud(text, priority_text, regular_text, mask_image, font_path
             st.warning("Please enter at least some words.")
             return None
         
-        # Create WordCloud with frequency
         wc = WordCloud(
-            background_color=bg_color,
+            background_color="white",
             mask=transformed_mask,
             font_path=font_path if font_path else None,
             stopwords=stopwords,
             max_words=max_words,
-            repeat=repeat,
+            repeat=True,
             min_font_size=min_size,
             max_font_size=max_size,
-            colormap=colormap if not use_black_style else None,
-            color_func=black_color_func if use_black_style else None
+            color_func=black_color_func,
+            relative_scaling=0.5,
+            prefer_horizontal=0.9
         )
         wc.generate_from_frequencies(word_freq)
     else:
-        # ORIGINAL: Text method
+        # Text method
         if not text:
             st.warning("Please enter some text.")
             return None
         
         wc = WordCloud(
-            background_color=bg_color,
+            background_color="white",
             mask=transformed_mask,
             font_path=font_path if font_path else None,
             stopwords=stopwords,
             max_words=max_words,
-            repeat=repeat,
+            repeat=True,
             min_font_size=min_size,
             max_font_size=max_size,
-            colormap=colormap if not use_black_style else None,
-            color_func=black_color_func if use_black_style else None
+            color_func=black_color_func,
+            relative_scaling=0.5,
+            prefer_horizontal=0.9
         )
         wc.generate(text.upper())
     
@@ -301,56 +246,72 @@ def generate_word_cloud(text, priority_text, regular_text, mask_image, font_path
 if st.button("🎨 Generate Word Cloud", type="primary", use_container_width=True):
     with st.spinner("Generating word cloud..."):
         try:
-            # Select font path
             selected_font = font_paths[0] if font_paths else None
             
             wc = generate_word_cloud(
-                text=full_text,
-                priority_text=priority_words,
-                regular_text=regular_words,
+                text=full_text if not enhanced_mode else full_text,
+                priority_text=priority_words if enhanced_mode else "",
+                regular_text=regular_words if enhanced_mode else "",
                 mask_image=mask_image,
                 font_path=selected_font,
                 min_size=min_font_size,
                 max_size=max_font_size,
-                bg_color=background_color,
-                colormap=colormap if not use_original_style else None,
                 max_words=max_words,
-                repeat=repeat_words,
-                priority_mult=priority_weight,
-                use_black_style=use_original_style
+                priority_mult=priority_weight if enhanced_mode else 1.0
             )
             
             if wc is not None:
+                # Store both the wordcloud object and the image
                 st.session_state.wordcloud = wc
-                st.success("✅ Word cloud generated successfully!")
+                st.session_state.wordcloud_image = wc.to_image()
+                st.success("✅ Word cloud generated!")
+                st.rerun()
+                
         except Exception as e:
-            st.error(f"❌ Error generating word cloud: {str(e)}")
+            st.error(f"❌ Error: {str(e)}")
             st.exception(e)
 
-# Display word cloud if it exists (from original with enhancements)
-if st.session_state.wordcloud is not None:
-    st.markdown('<div class="section-header">✨ Generated Word Cloud</div>', unsafe_allow_html=True)
+# Display section - ALWAYS visible if wordcloud exists
+if st.session_state.wordcloud_image is not None:
+    st.markdown("---")
+    st.markdown("### ✨ Generated Word Cloud")
     
-    # Display image
-    st.image(st.session_state.wordcloud.to_image(), caption='Word Cloud', use_container_width=True)
+    # Display the cached image for instant preview
+    st.image(
+        st.session_state.wordcloud_image, 
+        caption='Your Word Cloud',
+        use_container_width=True
+    )
     
-    # Download button (improved from original)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
-        st.session_state.wordcloud.to_image().save(tmpfile.name)
-        with open(tmpfile.name, "rb") as image_file:
-            st.download_button(
-                label="⬇️ Download Word Cloud Image",
-                data=image_file,
-                file_name="wordcloud.png",
-                mime="image/png",
-                use_container_width=True
-            )
+    # Download button with cached image
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # Convert image to bytes for download
+        import io
+        buf = io.BytesIO()
+        st.session_state.wordcloud_image.save(buf, format='PNG')
+        buf.seek(0)
+        
+        st.download_button(
+            label="⬇️ Download Word Cloud",
+            data=buf,
+            file_name="wordcloud.png",
+            mime="image/png",
+            use_container_width=True
+        )
+    
+    # Clear button
+    if st.button("🗑️ Clear and Start New", use_container_width=True):
+        st.session_state.wordcloud = None
+        st.session_state.wordcloud_image = None
+        st.rerun()
 
 # Footer
 st.markdown("---")
-st.markdown("""
+mode_text = "Enhanced Mode" if enhanced_mode else "Simple Mode"
+st.markdown(f"""
     <div style='text-align: center; color: #7f8c8d;'>
-        <p>iSeeU Cloud - Enhanced Word Cloud Generator</p>
-        <p>Upload a silhouette, customize your settings, and create beautiful word clouds!</p>
+        <p>iSeeU Cloud - {mode_text}</p>
+        <p>Toggle the mode switch in the sidebar to change between simple and enhanced features</p>
     </div>
 """, unsafe_allow_html=True)
